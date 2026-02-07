@@ -1,0 +1,41 @@
+# Podman-compatible Containerfile for Oracle development
+# Can also be used with Docker as a standard Dockerfile
+
+FROM docker.io/library/node:20-bullseye
+
+# Install additional tools
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    wget \
+    vim \
+    postgresql-client \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install global npm packages
+RUN npm install -g \
+    typescript \
+    tsx \
+    jest \
+    eslint \
+    @anthropic-ai/sdk \
+    @anthropic-ai/claude-code
+
+# Create workspace directory
+WORKDIR /workspaces/oracle
+
+# Set shell to bash
+SHELL ["/bin/bash", "-c"]
+
+# Add helpful aliases
+RUN echo 'alias ll="ls -la"' >> /root/.bashrc && \
+    echo 'alias gs="git status"' >> /root/.bashrc && \
+    echo 'alias gd="git diff"' >> /root/.bashrc && \
+    echo 'alias nr="npm run"' >> /root/.bashrc && \
+    echo 'alias oracle-start="npm run dev"' >> /root/.bashrc && \
+    echo 'alias oracle-worker="npm run dev:worker"' >> /root/.bashrc && \
+    echo 'alias oracle-test="npm test"' >> /root/.bashrc
+
+# Default command
+CMD ["sleep", "infinity"]

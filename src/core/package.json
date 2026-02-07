@@ -1,0 +1,41 @@
+{
+  "name": "@agent-smith/oracle-core",
+  "version": "1.0.0",
+  "description": "Framework-agnostic Oracle interview session management and analysis library",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "jest --config jest.config.cjs --no-coverage",
+    "test:watch": "jest --config jest.config.cjs --watch",
+    "test:coverage": "jest --config jest.config.cjs --coverage"
+  },
+  "keywords": [
+    "oracle",
+    "interview",
+    "session",
+    "analysis",
+    "temporal",
+    "machina"
+  ],
+  "author": "Agent Smith Project",
+  "license": "MIT",
+  "dependencies": {
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "@types/uuid": "^9.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

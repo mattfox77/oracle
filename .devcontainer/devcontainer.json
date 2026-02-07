@@ -1,0 +1,90 @@
+{
+  "name": "Oracle Dev Environment",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/oracle",
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker",
+        "GitHub.copilot",
+        "eamodio.gitlens",
+        "christian-kohler.path-intellisense",
+        "ms-vscode.vscode-typescript-next",
+        "ckolkman.vscode-postgres",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "typescript.preferences.importModuleSpecifier": "relative",
+        "typescript.updateImportsOnFileMove.enabled": "always",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.eol": "\n",
+        "files.insertFinalNewline": true,
+        "files.trimTrailingWhitespace": true,
+        "dev.containers.dockerPath": "podman",
+        "dev.containers.dockerComposePath": "podman-compose"
+      }
+    }
+  },
+
+  "forwardPorts": [3001, 5432, 7233, 8080],
+  "portsAttributes": {
+    "3001": {
+      "label": "Oracle API",
+      "onAutoForward": "notify"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    },
+    "7233": {
+      "label": "Temporal",
+      "onAutoForward": "silent"
+    },
+    "8080": {
+      "label": "Temporal UI",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "postCreateCommand": "cd /workspaces/machina && npm install && npm run build && cd /workspaces/oracle && npm install && cd /workspaces/oracle/src/core && npm install && npm run build",
+  "postStartCommand": "echo 'Oracle dev environment ready!'",
+
+  "remoteUser": "root",
+  "runArgs": [
+    "--userns=keep-id",
+    "--security-opt", "label=disable"
+  ],
+
+  "remoteEnv": {
+    "NODE_ENV": "development",
+    "DB_HOST": "localhost",
+    "DB_PORT": "5432",
+    "DB_NAME": "oracle",
+    "DB_USER": "oracle",
+    "DB_PASSWORD": "oracle_dev_password",
+    "TEMPORAL_ADDRESS": "localhost:7233",
+    "PORT": "3001"
+  },
+
+  "mounts": [
+    "source=${localEnv:HOME}/.anthropic,target=/root/.anthropic,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached"
+  ]
+}

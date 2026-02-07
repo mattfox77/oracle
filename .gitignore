@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+src/core/node_modules/
+
+# Build output
+dist/
+src/core/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Package lock files (keep package-lock.json if using npm)
+# Uncomment if using yarn or pnpm instead
+# package-lock.json

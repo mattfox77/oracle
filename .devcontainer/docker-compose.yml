@@ -1,0 +1,89 @@
+# Podman-compatible compose file for Oracle development environment
+# Use with: podman-compose up -d
+# Or: podman compose up -d (with podman-compose plugin)
+#
+# All services use host network mode for direct host network access
+
+services:
+  app:
+    container_name: oracle-app
+    build:
+      context: .
+      dockerfile: Containerfile
+    network_mode: host
+    volumes:
+      - ../..:/workspaces:z
+      - ${HOME}/.claude:/root/.claude:z
+    command: sleep infinity
+    security_opt:
+      - label:disable
+    environment:
+      - NODE_ENV=development
+      - DB_HOST=localhost
+      - DB_PORT=5432
+      - DB_NAME=oracle
+      - DB_USER=oracle
+      - DB_PASSWORD=oracle_dev_password
+      - TEMPORAL_ADDRESS=localhost:7233
+      - PORT=3001
+    depends_on:
+      db:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+
+  db:
+    container_name: oracle-db
+    image: docker.io/library/postgres:16-alpine
+    network_mode: host
+    restart: unless-stopped
+    security_opt:
+      - label:disable
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:z
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:z
+    environment:
+      POSTGRES_USER: oracle
+      POSTGRES_PASSWORD: oracle_dev_password
+      POSTGRES_DB: oracle
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oracle -d oracle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    container_name: oracle-temporal
+    image: temporalio/auto-setup:latest
+    network_mode: host
+    restart: unless-stopped
+    security_opt:
+      - label:disable
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=oracle
+      - POSTGRES_PWD=oracle_dev_password
+      - POSTGRES_SEEDS=localhost
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    depends_on:
+      db:
+        condition: service_healthy
+
+  temporal-ui:
+    container_name: oracle-temporal-ui
+    image: temporalio/ui:latest
+    network_mode: host
+    restart: unless-stopped
+    security_opt:
+      - label:disable
+    environment:
+      - TEMPORAL_ADDRESS=localhost:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - temporal
+    profiles:
+      - ui
+
+volumes:
+  postgres-data:
