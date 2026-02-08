@@ -11,6 +11,9 @@ let client: Anthropic | null = null;
 
 export function getClaudeClient(): Anthropic {
   if (!client) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is not set');
+    }
     client = new Anthropic();
   }
   return client;

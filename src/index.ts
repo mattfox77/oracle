@@ -25,6 +25,16 @@ import {
 } from './core';
 import { apiKeyAuth, createRateLimiter } from './middleware';
 
+// Input limits (bytes)
+const MAX_TEXT_FIELD = 10_000;    // domain, objective, response fields
+const MAX_JSON_BODY = 100_000;   // contextDocument and other JSON payloads
+
+function exceedsLimit(value: unknown, limit: number): boolean {
+  if (typeof value === 'string') return value.length > limit;
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value).length > limit;
+  return false;
+}
+
 // Configuration
 const config = {
   database: {
@@ -32,7 +42,10 @@ const config = {
     port: parseInt(process.env.DB_PORT || '5432'),
     database: process.env.DB_NAME || 'oracle',
     user: process.env.DB_USER || 'oracle',
-    password: process.env.DB_PASSWORD || ''
+    password: process.env.DB_PASSWORD || '',
+    max: parseInt(process.env.DB_POOL_MAX || '20'),
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 5_000,
   },
   temporal: {
     address: process.env.TEMPORAL_ADDRESS || 'localhost:7233'
@@ -97,6 +110,10 @@ function createApiRouter(deps: ApiDeps): express.Router {
         return res.status(400).json({ error: 'domain and objective are required' });
       }
 
+      if (exceedsLimit(domain, MAX_TEXT_FIELD) || exceedsLimit(objective, MAX_TEXT_FIELD) || exceedsLimit(constraints, MAX_TEXT_FIELD)) {
+        return res.status(400).json({ error: `Text fields must not exceed ${MAX_TEXT_FIELD} characters` });
+      }
+
       const client = await getTemporalClient();
       const workflowId = `interview-${Date.now()}`;
 
@@ -138,13 +155,19 @@ function createApiRouter(deps: ApiDeps): express.Router {
         return res.status(400).json({ error: 'response is required' });
       }
 
+      if (exceedsLimit(response, MAX_TEXT_FIELD)) {
+        return res.status(400).json({ error: `Response must not exceed ${MAX_TEXT_FIELD} characters` });
+      }
+
       const client = await getTemporalClient();
       const handle = client.workflow.getHandle(id);
 
       await handle.signal(respondSignal, response);
 
       // Persist updated state in the background (non-blocking to the response)
-      persistWorkflowState(handle, id, dataStore).catch(() => {});
+      persistWorkflowState(handle, id, dataStore).catch(e => {
+        loggers.app.warn('Background persist failed after respond', { workflowId: id, error: (e as Error).message });
+      });
 
       loggers.app.info('Response sent to interview', { workflowId: id });
       res.json({ status: 'response_received' });
@@ -215,7 +238,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
         : interviews.slice(offset);
 
       loggers.app.info('Listed interviews', { count: paginated.length, total: interviews.length });
-      res.json({ interviews: paginated, count: paginated.length, total: interviews.length, limit, offset });
+      res.json({ interviews: paginated, count: paginated.length, total: interviews.length, limit: limit ?? null, offset });
     } catch (error: any) {
       loggers.app.error('Failed to list interviews', error);
       res.status(500).json({ error: error.message });
@@ -257,12 +280,18 @@ function createApiRouter(deps: ApiDeps): express.Router {
         return res.status(400).json({ error: 'contextDocument is required' });
       }
 
+      if (exceedsLimit(contextDocument, MAX_JSON_BODY)) {
+        return res.status(400).json({ error: `contextDocument must not exceed ${MAX_JSON_BODY} characters` });
+      }
+
       const client = await getTemporalClient();
       const handle = client.workflow.getHandle(id);
       await handle.signal(editContextSignal, contextDocument);
 
       // Persist updated state in the background (non-blocking to the response)
-      persistWorkflowState(handle, id, dataStore).catch(() => {});
+      persistWorkflowState(handle, id, dataStore).catch(e => {
+        loggers.app.warn('Background persist failed after context edit', { workflowId: id, error: (e as Error).message });
+      });
 
       loggers.app.info('Context edited', { workflowId: id });
       res.json({ status: 'context_updated' });
@@ -316,6 +345,10 @@ function createApiRouter(deps: ApiDeps): express.Router {
 
       if (response === undefined || response === null) {
         return res.status(400).json({ error: 'response is required' });
+      }
+
+      if (exceedsLimit(response, MAX_TEXT_FIELD)) {
+        return res.status(400).json({ error: `Response must not exceed ${MAX_TEXT_FIELD} characters` });
       }
 
       const session = await sessionManager.getSession(id);
@@ -458,12 +491,18 @@ function createApiRouter(deps: ApiDeps): express.Router {
       const filters: SessionFilters = {};
       if (req.query.userId) filters.userId = req.query.userId as string;
       if (req.query.interviewType) filters.interviewType = req.query.interviewType as string;
-      if (req.query.status) filters.status = req.query.status as any;
+      if (req.query.status) {
+        const validStatuses = ['active', 'completed', 'paused'];
+        if (!validStatuses.includes(req.query.status as string)) {
+          return res.status(400).json({ error: `Invalid status filter. Must be one of: ${validStatuses.join(', ')}` });
+        }
+        filters.status = req.query.status as any;
+      }
       if (req.query.limit) filters.limit = Math.max(1, parseInt(req.query.limit as string, 10) || 50);
       if (req.query.offset) filters.offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
 
       const sessions = await sessionManager.listSessions(filters);
-      res.json({ sessions, count: sessions.length, limit: filters.limit, offset: filters.offset });
+      res.json({ sessions, count: sessions.length, limit: filters.limit ?? null, offset: filters.offset ?? 0 });
     } catch (error: any) {
       loggers.app.error('Failed to list sessions', error);
       res.status(500).json({ error: error.message });
