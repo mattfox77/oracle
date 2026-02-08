@@ -56,36 +56,51 @@ export class InterviewEngine implements IInterviewEngine {
       };
     }
 
-    // Store the response
+    // Build the response data
     const responseData: ResponseData = {
       response,
       metadata: {
         questionId: currentQuestion.id,
         questionText: currentQuestion.text,
+        questionType: currentQuestion.type,
         step: session.currentStep
       },
       timestamp: new Date().toISOString()
     };
 
-    // Update session with response (this would be done by the caller)
-    session.responses[currentQuestion.id] = responseData;
-    session.currentStep += 1;
-    session.updatedAt = new Date();
+    // Build updated fields without mutating the original session
+    const now = new Date();
+    const newResponses = { ...session.responses, [currentQuestion.id]: responseData };
+    const newStep = session.currentStep + 1;
 
-    // Check if interview is complete
-    const completed = await this.checkCompletion(session);
+    // Check completion against a projected session state
+    const projected: InterviewSession = {
+      ...session,
+      responses: newResponses,
+      currentStep: newStep,
+      updatedAt: now
+    };
+    const completed = await this.checkCompletion(projected);
+
     if (completed) {
-      session.status = 'completed';
-      session.completedAt = new Date();
+      projected.status = 'completed';
+      projected.completedAt = now;
     }
 
-    // Get next question
-    const nextQuestion = completed ? null : await this.getNextQuestion(session);
+    // Get next question from projected state
+    const nextQuestion = completed ? null : await this.getNextQuestion(projected);
 
     return {
       success: true,
       nextQuestion: nextQuestion || undefined,
-      completed
+      completed,
+      updates: {
+        currentStep: newStep,
+        responses: newResponses,
+        updatedAt: now,
+        status: completed ? 'completed' : session.status,
+        ...(completed ? { completedAt: now } : {})
+      }
     };
   }
 
@@ -119,17 +134,28 @@ export class InterviewEngine implements IInterviewEngine {
           }
           break;
 
-        case 'user_indicated_done':
-          // Check if user response indicates they're done
-          const lastResponse = Object.values(session.responses).pop();
+        case 'user_indicated_done': {
+          // Find the most recent response by step number
+          const responses = Object.values(session.responses);
+          const lastResponse = responses.reduce<typeof responses[0] | null>((latest, r) => {
+            const step = r.metadata?.step ?? -1;
+            const latestStep = latest?.metadata?.step ?? -1;
+            return step > latestStep ? r : latest;
+          }, null);
+
           if (lastResponse && typeof lastResponse.response === 'string') {
-            const response = lastResponse.response.toLowerCase();
-            if (response.includes('done') || response.includes('finished') ||
-                response.includes('complete') || response.includes('no more')) {
-              return true;
+            const text = lastResponse.response.trim().toLowerCase();
+            // Only trigger for short responses that are clearly done-signals,
+            // not long answers that happen to contain these words.
+            if (text.length <= 50) {
+              const donePatterns = /\b(done|finished|that'?s all|no more|that covers it|nothing else)\b/;
+              if (donePatterns.test(text)) {
+                return true;
+              }
             }
           }
           break;
+        }
       }
     }
 

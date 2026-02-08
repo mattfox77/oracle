@@ -95,4 +95,13 @@ export class SessionManager implements ISessionManager {
 
     return await this.updateSession(sessionId, { status: 'active' });
   }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const session = await this.storage.load(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    await this.storage.delete(sessionId);
+  }
 }

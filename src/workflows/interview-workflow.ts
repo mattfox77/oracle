@@ -58,7 +58,12 @@ export async function interviewWorkflow(
 
   setHandler(editContextSignal, (editedContext: any) => {
     state.contextDocument = editedContext;
-    state.awaitingResponse = false;
+    // Only unblock the response wait during the synthesize phase,
+    // where the workflow is waiting for the user to review the context.
+    // During interview phase, editing context should not disrupt Q&A flow.
+    if (state.phase === 'synthesize') {
+      state.awaitingResponse = false;
+    }
   });
 
   // Phase 1: Prime
@@ -82,10 +87,14 @@ export async function interviewWorkflow(
     state.awaitingResponse = true;
     state.userResponse = undefined;
 
-    await condition(() => !state.awaitingResponse, '24 hours');
+    const responded = await condition(() => !state.awaitingResponse, '24 hours');
+
+    if (!responded) {
+      throw new Error('Interview timeout - no response received within 24 hours');
+    }
 
     if (!state.userResponse) {
-      throw new Error('Interview timeout - no response received');
+      throw new Error('Interview response was empty');
     }
 
     // Process response
@@ -113,7 +122,11 @@ export async function interviewWorkflow(
 
   // Wait for user to review/edit context
   state.awaitingResponse = true;
-  await condition(() => !state.awaitingResponse, '24 hours');
+  const reviewed = await condition(() => !state.awaitingResponse, '24 hours');
+
+  if (!reviewed) {
+    throw new Error('Context review timeout - no response received within 24 hours');
+  }
 
   state.phase = 'recommend';
 

@@ -33,6 +33,15 @@ export class MemoryStorage implements ISessionStorage {
       if (filters.userId) sessions = sessions.filter(s => s.userId === filters.userId);
       if (filters.interviewType) sessions = sessions.filter(s => s.interviewType === filters.interviewType);
       if (filters.status) sessions = sessions.filter(s => s.status === filters.status);
+      if (filters.createdAfter) sessions = sessions.filter(s => s.createdAt >= filters.createdAfter!);
+      if (filters.createdBefore) sessions = sessions.filter(s => s.createdAt <= filters.createdBefore!);
+
+      if (filters.offset != null && filters.offset > 0) {
+        sessions = sessions.slice(filters.offset);
+      }
+      if (filters.limit != null && filters.limit > 0) {
+        sessions = sessions.slice(0, filters.limit);
+      }
     }
 
     return sessions;
@@ -77,15 +86,9 @@ export async function completeInterview(
       }
     }
 
-    const sessionCopy = { ...current, responses: { ...current.responses } };
-    const result = await engine.processResponse(sessionCopy, answer);
+    const result = await engine.processResponse(current, answer);
 
-    current = await sessionManager.updateSession(current.id, {
-      currentStep: sessionCopy.currentStep,
-      responses: sessionCopy.responses,
-      status: result.completed ? 'completed' : sessionCopy.status,
-      completedAt: result.completed ? new Date() : undefined
-    });
+    current = await sessionManager.updateSession(current.id, result.updates || {});
 
     if (result.completed) break;
   }

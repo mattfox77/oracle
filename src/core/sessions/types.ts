@@ -36,6 +36,8 @@ export interface SessionFilters {
   status?: InterviewSession['status'];
   createdAfter?: Date;
   createdBefore?: Date;
+  limit?: number;
+  offset?: number;
 }
 
 export interface ProgressInfo {
@@ -50,6 +52,8 @@ export interface ProcessResult {
   nextQuestion?: Question;
   completed: boolean;
   error?: string;
+  /** Session fields that changed — caller should persist these */
+  updates?: Partial<InterviewSession>;
 }
 
 export interface Question {
@@ -105,6 +109,6 @@ export interface Recommendation {
   title: string;
   rationale: string;
   nextSteps: string[];
-  priority: 'high' | 'medium' | 'low';
+  priority?: 'high' | 'medium' | 'low';
   agentToExecute?: string;
 }

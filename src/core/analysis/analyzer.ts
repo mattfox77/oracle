@@ -26,10 +26,17 @@ export class Analyzer implements IAnalyzer {
       ? session.completedAt.getTime() - session.createdAt.getTime()
       : 0;
 
+    const responseCount = Object.keys(session.responses).length;
+    const interviewType = getInterviewType(session.interviewType);
+    const totalQuestions = interviewType ? interviewType.questions.length : responseCount;
+    const completionRate = totalQuestions > 0
+      ? Math.min(responseCount / totalQuestions, 1.0)
+      : 0;
+
     return {
       completionTime,
-      responseCount: Object.keys(session.responses).length,
-      completionRate: 1.0, // Completed sessions have 100% completion rate
+      responseCount,
+      completionRate,
       insights,
       score,
       recommendations
@@ -116,22 +123,30 @@ export class Analyzer implements IAnalyzer {
     let qualityPoints = 0;
     let totalResponses = 0;
 
-    for (const [questionId, response] of Object.entries(session.responses)) {
+    // Question types where short/constrained answers are expected and fully valid
+    const structuredTypes = new Set(['yes_no', 'scale', 'multiple_choice', 'date', 'number']);
+
+    for (const [_questionId, response] of Object.entries(session.responses)) {
       totalResponses++;
+      const questionType: string | undefined = response.metadata?.questionType;
 
       // Points for non-empty responses
       if (response.response && response.response.toString().trim().length > 0) {
         qualityPoints += 2;
       }
 
-      // Bonus points for detailed responses (text responses > 20 characters)
-      if (typeof response.response === 'string' && response.response.length > 20) {
+      // Bonus point: type-aware detail scoring
+      if (questionType && structuredTypes.has(questionType)) {
+        // Structured types get full bonus for any valid answer
+        qualityPoints += 1;
+      } else if (typeof response.response === 'string' && response.response.length > 20) {
+        // Text/free-form responses get bonus for detail
         qualityPoints += 1;
       }
 
-      // Bonus points for specific response types
+      // Bonus points for multiple selections (shows engagement)
       if (Array.isArray(response.response) && response.response.length > 1) {
-        qualityPoints += 1; // Multiple selections show engagement
+        qualityPoints += 1;
       }
     }
 

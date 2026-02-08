@@ -65,15 +65,18 @@ describe('InterviewEngine', () => {
   });
 
   describe('processResponse', () => {
-    it('processes a text response and advances step', async () => {
+    it('processes a text response and returns updates', async () => {
       const session = await createSession();
       const result = await engine.processResponse(session, 'I need help with apartment management');
 
       expect(result.success).toBe(true);
       expect(result.completed).toBe(false);
-      expect(session.currentStep).toBe(1);
-      expect(session.responses['purpose']).toBeDefined();
-      expect(session.responses['purpose'].response).toBe('I need help with apartment management');
+      // Engine no longer mutates session directly — changes come via result.updates
+      expect(session.currentStep).toBe(0); // Original unchanged
+      expect(result.updates).toBeDefined();
+      expect(result.updates!.currentStep).toBe(1);
+      expect(result.updates!.responses!['purpose']).toBeDefined();
+      expect(result.updates!.responses!['purpose'].response).toBe('I need help with apartment management');
     });
 
     it('returns next question after processing', async () => {

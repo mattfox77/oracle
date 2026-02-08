@@ -9,7 +9,7 @@ let clientPromise: Promise<Client> | null = null;
 
 export async function getTemporalClient(): Promise<Client> {
   if (!clientPromise) {
-    clientPromise = (async () => {
+    const pending = (async () => {
       const config = getTemporalConfig();
       const connection = await Connection.connect({
         address: config.address
@@ -19,6 +19,15 @@ export async function getTemporalClient(): Promise<Client> {
         namespace: config.namespace
       });
     })();
+
+    clientPromise = pending;
+
+    // Clear the cached promise on failure so subsequent calls can retry
+    pending.catch(() => {
+      if (clientPromise === pending) {
+        clientPromise = null;
+      }
+    });
   }
   return clientPromise;
 }

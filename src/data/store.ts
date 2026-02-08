@@ -25,6 +25,13 @@ export class OracleDataStore {
     }
   }
 
+  getPool(): Pool {
+    if (!this.pool) {
+      throw new Error('Database not connected');
+    }
+    return this.pool;
+  }
+
   async close(): Promise<void> {
     if (this.pool) {
       await this.pool.end();
@@ -82,7 +89,7 @@ export class OracleDataStore {
   }
 
   // Issue creation (for maintenance-request interviews)
-  async createIssue(tenantId: number, description: string, priority: string): Promise<number> {
+  async createIssue(tenantId: string, description: string, priority: string): Promise<number> {
     const result = await this.query(
       `INSERT INTO issues (tenant_id, description, priority, status, created_at)
        VALUES ($1, $2, $3, $4, $5) RETURNING id`,

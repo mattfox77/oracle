@@ -15,17 +15,25 @@ import {
   getAllInterviewTypes
 } from './index';
 
-// Mock storage implementation for testing
+// Mock storage implementation for testing (deep-copy to prevent mutation leaks)
 class MemoryStorage implements ISessionStorage {
   private sessions: Map<string, InterviewSession> = new Map();
 
+  private clone(session: InterviewSession): InterviewSession {
+    const parsed = JSON.parse(JSON.stringify(session));
+    parsed.createdAt = new Date(parsed.createdAt);
+    parsed.updatedAt = new Date(parsed.updatedAt);
+    if (parsed.completedAt) parsed.completedAt = new Date(parsed.completedAt);
+    return parsed;
+  }
+
   async save(session: InterviewSession): Promise<void> {
-    this.sessions.set(session.id, { ...session });
+    this.sessions.set(session.id, this.clone(session));
   }
 
   async load(sessionId: string): Promise<InterviewSession | null> {
     const session = this.sessions.get(sessionId);
-    return session ? { ...session } : null;
+    return session ? this.clone(session) : null;
   }
 
   async list(filters?: SessionFilters): Promise<InterviewSession[]> {
@@ -41,9 +49,16 @@ class MemoryStorage implements ISessionStorage {
       if (filters.status) {
         sessions = sessions.filter(s => s.status === filters.status);
       }
+
+      if (filters.offset != null && filters.offset > 0) {
+        sessions = sessions.slice(filters.offset);
+      }
+      if (filters.limit != null && filters.limit > 0) {
+        sessions = sessions.slice(0, filters.limit);
+      }
     }
 
-    return sessions.map(s => ({ ...s }));
+    return sessions.map(s => this.clone(s));
   }
 
   async delete(sessionId: string): Promise<void> {
@@ -94,16 +109,13 @@ async function runTests(): Promise<void> {
     console.log('   Next question:', response.nextQuestion?.text);
     console.log('   Interview completed:', response.completed);
 
-    // Update session via session manager
-    await sessionManager.updateSession(session.id, {
-      currentStep: session.currentStep,
-      responses: session.responses
-    });
+    // Update session via session manager using returned updates
+    const updatedSession = await sessionManager.updateSession(session.id, response.updates || {});
     console.log('   ✅ Interview engine working\n');
 
     // Test 4: Progress tracking
     console.log('4. Testing progress tracking...');
-    const progress = await engine.getProgress(session);
+    const progress = await engine.getProgress(updatedSession);
     console.log('   Current step:', progress.currentStep);
     console.log('   Total steps:', progress.totalSteps);
     console.log('   Completion %:', progress.completionPercentage);
@@ -153,20 +165,12 @@ async function runTests(): Promise<void> {
 
       console.log(`   Providing answer: ${answer}`);
 
-      // Make a copy of session for processResponse to modify
-      const sessionCopy = { ...currentSession, responses: { ...currentSession.responses } };
-      const result = await engine.processResponse(sessionCopy, answer);
+      const result = await engine.processResponse(currentSession, answer);
 
-      console.log(`   Current step after engine: ${sessionCopy.currentStep}`);
       console.log(`   Result completed: ${result.completed}`);
 
-      // Update the session with the new state from the engine result
-      currentSession = await sessionManager.updateSession(currentSession.id, {
-        currentStep: sessionCopy.currentStep,
-        responses: sessionCopy.responses,
-        status: result.completed ? 'completed' : sessionCopy.status,
-        completedAt: result.completed ? new Date() : undefined
-      });
+      // Update the session with the returned updates
+      currentSession = await sessionManager.updateSession(currentSession.id, result.updates || {});
 
       console.log(`   Updated session step: ${currentSession.currentStep}`);
 
@@ -196,6 +200,6 @@ async function runTests(): Promise<void> {
 }
 
 // Run tests if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   runTests().catch(console.error);
 }

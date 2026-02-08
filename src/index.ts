@@ -13,17 +13,17 @@ import express from 'express';
 import { loggers, BaseHealthServer } from 'the-machina';
 import { getTemporalClient } from './temporal/client';
 import { OracleDataStore } from './data/store';
+import { PostgresSessionStorage } from './data/session-storage';
 import { interviewWorkflow, respondSignal, editContextSignal, getStateQuery, InterviewState } from './workflows/interview-workflow';
 import {
   SessionManager,
   InterviewEngine,
   Analyzer,
-  ISessionStorage,
-  InterviewSession,
   SessionFilters,
   getAllInterviewTypes,
   validateCreateSessionParams
 } from './core';
+import { apiKeyAuth, createRateLimiter } from './middleware';
 
 // Configuration
 const config = {
@@ -45,44 +45,46 @@ const config = {
   }
 };
 
-// In-Memory Session Storage for oracle-core
-class MemorySessionStorage implements ISessionStorage {
-  private sessions: Map<string, InterviewSession> = new Map();
-
-  async save(session: InterviewSession): Promise<void> {
-    this.sessions.set(session.id, { ...session, responses: { ...session.responses } });
-  }
-
-  async load(sessionId: string): Promise<InterviewSession | null> {
-    const session = this.sessions.get(sessionId);
-    return session ? { ...session, responses: { ...session.responses } } : null;
-  }
-
-  async list(filters?: SessionFilters): Promise<InterviewSession[]> {
-    let sessions = Array.from(this.sessions.values());
-    if (filters) {
-      if (filters.userId) sessions = sessions.filter(s => s.userId === filters.userId);
-      if (filters.interviewType) sessions = sessions.filter(s => s.interviewType === filters.interviewType);
-      if (filters.status) sessions = sessions.filter(s => s.status === filters.status);
+/**
+ * Persist Temporal workflow state to the database after a signal.
+ * Retries the query to give Temporal time to process the signal.
+ */
+async function persistWorkflowState(
+  handle: { query: (q: any) => Promise<InterviewState> },
+  workflowId: string,
+  dataStore: OracleDataStore,
+  retries = 3,
+  delayMs = 300
+): Promise<void> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      const state = await handle.query(getStateQuery);
+      await dataStore.saveInterview(workflowId, { ...state, sentinelId: 'oracle' });
+      return;
+    } catch (e) {
+      if (attempt === retries - 1) {
+        loggers.app.warn('Could not persist state after signal', { workflowId, attempt });
+      }
     }
-    return sessions.map(s => ({ ...s, responses: { ...s.responses } }));
-  }
-
-  async delete(sessionId: string): Promise<void> {
-    this.sessions.delete(sessionId);
   }
 }
 
-// Oracle-core service instances
-const sessionStorage = new MemorySessionStorage();
-const sessionManager = new SessionManager(sessionStorage);
-const interviewEngine = new InterviewEngine();
-const analyzer = new Analyzer();
+interface ApiDeps {
+  dataStore: OracleDataStore;
+  sessionManager: SessionManager;
+  interviewEngine: InterviewEngine;
+  analyzer: Analyzer;
+}
 
 // Create API router
-function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
+function createApiRouter(deps: ApiDeps): express.Router {
   const router = express.Router();
-  const { dataStore } = deps;
+  const { dataStore, sessionManager, interviewEngine, analyzer } = deps;
+
+  // Apply middleware to all API routes
+  router.use(createRateLimiter());
+  router.use(apiKeyAuth);
 
   // ===== Temporal Workflow Endpoints =====
 
@@ -141,15 +143,8 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
 
       await handle.signal(respondSignal, response);
 
-      // Persist updated state after processing
-      setTimeout(async () => {
-        try {
-          const state = await handle.query(getStateQuery);
-          await dataStore.saveInterview(id, { ...state, sentinelId: 'oracle' });
-        } catch (e) {
-          loggers.app.warn('Could not persist state after response', { workflowId: id });
-        }
-      }, 500);
+      // Persist updated state in the background (non-blocking to the response)
+      persistWorkflowState(handle, id, dataStore).catch(() => {});
 
       loggers.app.info('Response sent to interview', { workflowId: id });
       res.json({ status: 'response_received' });
@@ -173,9 +168,12 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
     }
   });
 
-  // List all interviews
+  // List all interviews (with optional pagination)
   router.get('/interviews', async (req, res) => {
     try {
+      const limit = req.query.limit ? Math.max(1, parseInt(req.query.limit as string, 10) || 50) : undefined;
+      const offset = req.query.offset ? Math.max(0, parseInt(req.query.offset as string, 10) || 0) : 0;
+
       const client = await getTemporalClient();
       const workflows = client.workflow.list({
         query: `WorkflowType = 'interviewWorkflow'`
@@ -211,10 +209,40 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
         }
       }
 
-      loggers.app.info('Listed interviews', { count: interviews.length });
-      res.json({ interviews, total: interviews.length });
+      // Apply pagination
+      const paginated = limit != null
+        ? interviews.slice(offset, offset + limit)
+        : interviews.slice(offset);
+
+      loggers.app.info('Listed interviews', { count: paginated.length, total: interviews.length });
+      res.json({ interviews: paginated, count: paginated.length, total: interviews.length, limit, offset });
     } catch (error: any) {
       loggers.app.error('Failed to list interviews', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Cancel interview
+  router.post('/interviews/:id/cancel', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const client = await getTemporalClient();
+      const handle = client.workflow.getHandle(id);
+
+      // Check workflow is still running before cancelling
+      const description = await handle.describe();
+      if (description.status.name !== 'RUNNING') {
+        return res.status(400).json({
+          error: `Interview is not running (status: ${description.status.name})`
+        });
+      }
+
+      await handle.cancel();
+
+      loggers.app.info('Interview cancelled', { workflowId: id });
+      res.json({ status: 'cancelled', workflowId: id });
+    } catch (error: any) {
+      loggers.app.error('Failed to cancel interview', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -233,14 +261,8 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
       const handle = client.workflow.getHandle(id);
       await handle.signal(editContextSignal, contextDocument);
 
-      setTimeout(async () => {
-        try {
-          const state = await handle.query(getStateQuery);
-          await dataStore.saveInterview(id, { ...state, sentinelId: 'oracle' });
-        } catch (e) {
-          loggers.app.warn('Could not persist state after context edit', { workflowId: id });
-        }
-      }, 500);
+      // Persist updated state in the background (non-blocking to the response)
+      persistWorkflowState(handle, id, dataStore).catch(() => {});
 
       loggers.app.info('Context edited', { workflowId: id });
       res.json({ status: 'context_updated' });
@@ -311,12 +333,7 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
         return res.status(400).json({ error: result.error });
       }
 
-      const updated = await sessionManager.updateSession(id, {
-        currentStep: session.currentStep,
-        responses: session.responses,
-        status: result.completed ? 'completed' : session.status,
-        completedAt: result.completed ? new Date() : undefined
-      });
+      const updated = await sessionManager.updateSession(id, result.updates || {});
 
       const progress = await interviewEngine.getProgress(updated);
 
@@ -397,6 +414,20 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
     }
   });
 
+  // Delete session
+  router.delete('/sessions/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await sessionManager.deleteSession(id);
+      loggers.app.info('Session deleted', { sessionId: id });
+      res.json({ status: 'deleted', sessionId: id });
+    } catch (error: any) {
+      loggers.app.error('Failed to delete session', error);
+      const status = error.message?.includes('not found') ? 404 : 500;
+      res.status(status).json({ error: error.message });
+    }
+  });
+
   // Get analysis for completed session
   router.get('/sessions/:id/analysis', async (req, res) => {
     try {
@@ -421,16 +452,18 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
     }
   });
 
-  // List all sessions
+  // List all sessions (with optional pagination)
   router.get('/sessions', async (req, res) => {
     try {
       const filters: SessionFilters = {};
       if (req.query.userId) filters.userId = req.query.userId as string;
       if (req.query.interviewType) filters.interviewType = req.query.interviewType as string;
       if (req.query.status) filters.status = req.query.status as any;
+      if (req.query.limit) filters.limit = Math.max(1, parseInt(req.query.limit as string, 10) || 50);
+      if (req.query.offset) filters.offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
 
       const sessions = await sessionManager.listSessions(filters);
-      res.json({ sessions, total: sessions.length });
+      res.json({ sessions, count: sessions.length, limit: filters.limit, offset: filters.offset });
     } catch (error: any) {
       loggers.app.error('Failed to list sessions', error);
       res.status(500).json({ error: error.message });
@@ -466,10 +499,10 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
       else if (urgency.includes('Urgent')) priority = 'urgent';
 
       const description = `[${category}] ${issueDesc} (Unit: ${unitInfo})`;
-      const tenantId = req.body.tenant_id || parseInt(session.userId) || null;
+      const tenantId: string | undefined = req.body.tenant_id || session.userId;
 
-      if (!tenantId) {
-        return res.status(400).json({ error: 'tenant_id required (pass in body or use numeric userId)' });
+      if (!tenantId || tenantId.trim().length === 0) {
+        return res.status(400).json({ error: 'tenant_id required (pass in body or ensure session has userId)' });
       }
 
       const issueId = await dataStore.createIssue(tenantId, description, priority);
@@ -496,6 +529,7 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
   });
 
   // Agent function endpoint (for cross-agent calls)
+  // Dispatches to documented Oracle functions from TOOLS.md
   router.post('/functions/:functionName', async (req, res) => {
     try {
       const { functionName } = req.params;
@@ -503,11 +537,135 @@ function createApiRouter(deps: { dataStore: OracleDataStore }): express.Router {
 
       loggers.app.info('Function called', { functionName, params });
 
-      res.json({
-        success: true,
-        message: `Function ${functionName} executed`,
-        data: {}
-      });
+      switch (functionName) {
+        case 'conduct_interview': {
+          const { userId, interviewType, initialContext } = params;
+          if (!userId || !interviewType) {
+            return res.status(400).json({ error: 'userId and interviewType are required' });
+          }
+          const validation = validateCreateSessionParams({ userId, interviewType, initialContext });
+          if (!validation.valid) {
+            return res.status(400).json({ error: validation.errors.join(', ') });
+          }
+          const session = await sessionManager.createSession({ userId, interviewType, initialContext });
+          const firstQuestion = await interviewEngine.getNextQuestion(session);
+          res.json({ success: true, data: { sessionId: session.id, firstQuestion } });
+          break;
+        }
+
+        case 'ask_question': {
+          const { sessionId } = params;
+          if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+          }
+          const session = await sessionManager.getSession(sessionId);
+          if (!session) {
+            return res.status(404).json({ error: `Session not found: ${sessionId}` });
+          }
+          const question = await interviewEngine.getNextQuestion(session);
+          res.json({ success: true, data: { question } });
+          break;
+        }
+
+        case 'synthesize_context': {
+          const { sessionId } = params;
+          if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+          }
+          const session = await sessionManager.getSession(sessionId);
+          if (!session) {
+            return res.status(404).json({ error: `Session not found: ${sessionId}` });
+          }
+          if (session.status !== 'completed') {
+            return res.status(400).json({ error: 'Session must be completed before synthesis' });
+          }
+          const analysis = await analyzer.generateAnalysis(session);
+          res.json({ success: true, data: { analysis } });
+          break;
+        }
+
+        case 'generate_recommendations': {
+          const { sessionId } = params;
+          if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+          }
+          const session = await sessionManager.getSession(sessionId);
+          if (!session) {
+            return res.status(404).json({ error: `Session not found: ${sessionId}` });
+          }
+          if (session.status !== 'completed') {
+            return res.status(400).json({ error: 'Session must be completed for recommendations' });
+          }
+          const analysis = await analyzer.generateAnalysis(session);
+          res.json({ success: true, data: { recommendations: analysis.recommendations } });
+          break;
+        }
+
+        case 'export_context': {
+          const { sessionId, format } = params;
+          if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+          }
+          const session = await sessionManager.getSession(sessionId);
+          if (!session) {
+            return res.status(404).json({ error: `Session not found: ${sessionId}` });
+          }
+          const exportFormat = format || 'json';
+          if (exportFormat === 'markdown') {
+            const progress = await interviewEngine.getProgress(session);
+            const lines = [
+              `# Interview: ${session.interviewType}`,
+              `**User:** ${session.userId}`,
+              `**Status:** ${session.status}`,
+              `**Progress:** ${progress.completionPercentage}%`,
+              '',
+              '## Responses',
+            ];
+            for (const [qId, data] of Object.entries(session.responses)) {
+              lines.push(`### ${data.metadata?.questionText || qId}`);
+              lines.push(String(data.response));
+              lines.push('');
+            }
+            res.json({ success: true, data: { format: 'markdown', content: lines.join('\n') } });
+          } else {
+            res.json({ success: true, data: { format: 'json', content: session } });
+          }
+          break;
+        }
+
+        case 'import_context': {
+          const { contextData, sessionId: targetSessionId } = params;
+          if (!contextData) {
+            return res.status(400).json({ error: 'contextData is required' });
+          }
+          if (targetSessionId) {
+            const session = await sessionManager.getSession(targetSessionId);
+            if (!session) {
+              return res.status(404).json({ error: `Session not found: ${targetSessionId}` });
+            }
+            const updated = await sessionManager.updateSession(targetSessionId, {
+              contextData: { ...session.contextData, ...contextData },
+            });
+            res.json({ success: true, data: { sessionId: updated.id, merged: true } });
+          } else {
+            // Create a new session with the imported context
+            const { userId, interviewType } = params;
+            if (!userId || !interviewType) {
+              return res.status(400).json({ error: 'userId and interviewType required when creating new session' });
+            }
+            const session = await sessionManager.createSession({
+              userId,
+              interviewType,
+              initialContext: contextData,
+            });
+            res.json({ success: true, data: { sessionId: session.id, created: true } });
+          }
+          break;
+        }
+
+        default:
+          res.status(404).json({ error: `Unknown function: ${functionName}` });
+      }
     } catch (error: any) {
       loggers.app.error('Function execution failed', error);
       res.status(500).json({ error: error.message });
@@ -581,8 +739,15 @@ async function main(): Promise<void> {
   await dataStore.connect({ db: config.database });
   loggers.app.info('Connected to database');
 
+  // Initialize oracle-core services with PostgreSQL-backed session storage
+  const sessionStorage = new PostgresSessionStorage(dataStore.getPool());
+  const sessionManager = new SessionManager(sessionStorage);
+  const interviewEngine = new InterviewEngine();
+  const analyzer = new Analyzer();
+  loggers.app.info('Session storage: PostgreSQL');
+
   // Create API router
-  const apiRouter = createApiRouter({ dataStore });
+  const apiRouter = createApiRouter({ dataStore, sessionManager, interviewEngine, analyzer });
 
   // Start health check server
   const healthServer = new OracleHealthServer({ dataStore });
