@@ -23,27 +23,29 @@ export async function processResponse(params: ProcessResponseParams): Promise<Pr
 
   // Check completion criteria
   const totalExchanges = params.exchanges.length + 1;
+  const answerTrimmed = params.answer.trim();
+  const answerLower = answerTrimmed.toLowerCase();
 
-  // Complete if:
-  // 1. User indicates they're done
-  // 2. Minimum exchanges met (5) and answer suggests completion
-  // 3. Maximum exchanges reached (20)
-
-  const answerLower = params.answer.toLowerCase();
-  const userDone = answerLower.includes('that\'s all') ||
-                   answerLower.includes('nothing else') ||
-                   answerLower.includes('that covers it');
-
-  if (userDone && totalExchanges >= 3) {
-    return { complete: true, reason: 'User indicated completion' };
-  }
-
-  if (totalExchanges >= 5 && answerLower.includes('no')) {
-    return { complete: true, reason: 'Sufficient context gathered' };
-  }
-
+  // 1. Maximum exchanges reached
   if (totalExchanges >= 20) {
     return { complete: true, reason: 'Maximum questions reached' };
+  }
+
+  // 2. User explicitly indicates they're done (short answers only to avoid false positives)
+  if (answerTrimmed.length <= 80 && totalExchanges >= 3) {
+    const donePatterns = /\b(done|finished|that'?s all|no more|that covers it|nothing else|that'?s it|i'?m good|all set)\b/;
+    if (donePatterns.test(answerLower)) {
+      return { complete: true, reason: 'User indicated completion' };
+    }
+  }
+
+  // 3. Short negative response after sufficient context (5+ exchanges)
+  //    Only trigger on brief "no" / "no thanks" style replies, not long answers containing "no"
+  if (totalExchanges >= 5 && answerTrimmed.length <= 30) {
+    const negativePatterns = /^(no|nope|no thanks|not really|nothing|none)\.?$/;
+    if (negativePatterns.test(answerLower)) {
+      return { complete: true, reason: 'Sufficient context gathered' };
+    }
   }
 
   return { complete: false };

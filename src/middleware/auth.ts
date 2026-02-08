@@ -13,21 +13,33 @@ import { Request, Response, NextFunction } from 'express';
 import { loggers } from 'the-machina';
 
 let apiKeys: Set<string> | null = null;
+let apiKeysLoadedAt = 0;
+const API_KEYS_TTL_MS = 60_000; // Re-read env every 60 seconds
 
 function getApiKeys(): Set<string> | null {
-  if (apiKeys !== null) return apiKeys.size > 0 ? apiKeys : null;
+  const now = Date.now();
+  if (apiKeys !== null && now - apiKeysLoadedAt < API_KEYS_TTL_MS) {
+    return apiKeys.size > 0 ? apiKeys : null;
+  }
 
   const raw = process.env.ORACLE_API_KEYS;
   if (!raw || raw.trim().length === 0) {
     apiKeys = new Set();
+    apiKeysLoadedAt = now;
     return null;
   }
 
-  apiKeys = new Set(
+  const newKeys = new Set(
     raw.split(',').map(k => k.trim()).filter(k => k.length > 0)
   );
 
-  loggers.app.info('API key authentication enabled', { keyCount: apiKeys.size });
+  // Log only when keys change
+  if (!apiKeys || apiKeys.size !== newKeys.size || ![...newKeys].every(k => apiKeys!.has(k))) {
+    loggers.app.info('API key authentication enabled', { keyCount: newKeys.size });
+  }
+
+  apiKeys = newKeys;
+  apiKeysLoadedAt = now;
   return apiKeys.size > 0 ? apiKeys : null;
 }
 

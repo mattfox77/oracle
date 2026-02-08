@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS interviews (
 );
 
 -- Create indexes for common queries
-CREATE INDEX idx_interviews_workflow_id ON interviews(workflow_id);
+-- (workflow_id already has a UNIQUE constraint, no separate index needed)
 CREATE INDEX idx_interviews_agent_id ON interviews(agent_id);
 CREATE INDEX idx_interviews_phase ON interviews(phase);
 CREATE INDEX idx_interviews_created_at ON interviews(created_at);

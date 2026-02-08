@@ -164,4 +164,72 @@ describe('SessionManager', () => {
       await expect(manager.resumeSession(session.id)).rejects.toThrow('Cannot resume completed session');
     });
   });
+
+  describe('deleteSession', () => {
+    it('deletes an existing session', async () => {
+      const session = await manager.createSession({ userId: 'user-1', interviewType: 'general' });
+      await manager.deleteSession(session.id);
+      const result = await manager.getSession(session.id);
+      expect(result).toBeNull();
+    });
+
+    it('throws for non-existent session', async () => {
+      await expect(manager.deleteSession('non-existent')).rejects.toThrow('Session not found: non-existent');
+    });
+
+    it('removes session from list results', async () => {
+      const s1 = await manager.createSession({ userId: 'user-1', interviewType: 'general' });
+      await manager.createSession({ userId: 'user-2', interviewType: 'general' });
+      await manager.deleteSession(s1.id);
+      const all = await manager.listSessions();
+      expect(all.length).toBe(1);
+      expect(all[0].userId).toBe('user-2');
+    });
+  });
+
+  describe('listSessions pagination', () => {
+    beforeEach(async () => {
+      for (let i = 0; i < 5; i++) {
+        await manager.createSession({ userId: `user-${i}`, interviewType: 'general' });
+      }
+    });
+
+    it('returns all sessions when no limit set', async () => {
+      const all = await manager.listSessions();
+      expect(all.length).toBe(5);
+    });
+
+    it('respects limit', async () => {
+      const page = await manager.listSessions({ limit: 2 });
+      expect(page.length).toBe(2);
+    });
+
+    it('respects offset', async () => {
+      const all = await manager.listSessions();
+      const page = await manager.listSessions({ offset: 3 });
+      expect(page.length).toBe(2);
+      expect(page[0].id).toBe(all[3].id);
+    });
+
+    it('respects limit and offset together', async () => {
+      const all = await manager.listSessions();
+      const page = await manager.listSessions({ limit: 2, offset: 1 });
+      expect(page.length).toBe(2);
+      expect(page[0].id).toBe(all[1].id);
+      expect(page[1].id).toBe(all[2].id);
+    });
+
+    it('returns empty array when offset exceeds total', async () => {
+      const page = await manager.listSessions({ offset: 100 });
+      expect(page.length).toBe(0);
+    });
+
+    it('combines filters with pagination', async () => {
+      // Create one extra session with a different type
+      await manager.createSession({ userId: 'user-extra', interviewType: 'tenant-screening' });
+      const page = await manager.listSessions({ interviewType: 'general', limit: 3 });
+      expect(page.length).toBe(3);
+      page.forEach(s => expect(s.interviewType).toBe('general'));
+    });
+  });
 });
