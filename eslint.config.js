@@ -3,7 +3,7 @@ const tsPlugin = require('@typescript-eslint/eslint-plugin');
 
 module.exports = [
   {
-    files: ['src/**/*.ts', 'tests/**/*.ts', 'scripts/**/*.ts'],
+    files: ['src/**/*.ts', 'tests/**/*.ts'],
     ignores: ['src/core/__tests__/**', 'src/core/test.ts'],
     languageOptions: {
       parser: tsParser,
@@ -17,12 +17,34 @@ module.exports = [
     },
     rules: {
       // TypeScript-aware rules
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off',
 
       // General code quality
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+      'no-duplicate-imports': 'error',
+      'no-throw-literal': 'error',
+      'prefer-const': 'error',
+      'eqeqeq': ['error', 'always', { null: 'ignore' }],
+    },
+  },
+  {
+    files: ['scripts/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'off',
+      'no-console': 'off',
       'no-duplicate-imports': 'error',
       'no-throw-literal': 'error',
       'prefer-const': 'error',
