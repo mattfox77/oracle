@@ -15,6 +15,7 @@ import { getTemporalClient } from './temporal/client';
 import { OracleDataStore } from './data/store';
 import { PostgresSessionStorage } from './data/session-storage';
 import { interviewWorkflow, respondSignal, editContextSignal, getStateQuery, InterviewState } from './workflows/interview-workflow';
+import { v4 as uuidv4 } from 'uuid';
 import {
   SessionManager,
   InterviewEngine,
@@ -115,7 +116,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
       }
 
       const client = await getTemporalClient();
-      const workflowId = `interview-${Date.now()}`;
+      const workflowId = `interview-${uuidv4()}`;
 
       await client.workflow.start(interviewWorkflow, {
         taskQueue: 'oracle-queue',
@@ -582,6 +583,12 @@ function createApiRouter(deps: ApiDeps): express.Router {
           if (!userId || !interviewType) {
             return res.status(400).json({ error: 'userId and interviewType are required' });
           }
+          if (exceedsLimit(userId, MAX_TEXT_FIELD) || exceedsLimit(interviewType, MAX_TEXT_FIELD)) {
+            return res.status(400).json({ error: `Text fields must not exceed ${MAX_TEXT_FIELD} characters` });
+          }
+          if (initialContext && exceedsLimit(initialContext, MAX_JSON_BODY)) {
+            return res.status(400).json({ error: `initialContext must not exceed ${MAX_JSON_BODY} characters` });
+          }
           const validation = validateCreateSessionParams({ userId, interviewType, initialContext });
           if (!validation.valid) {
             return res.status(400).json({ error: validation.errors.join(', ') });
@@ -677,6 +684,9 @@ function createApiRouter(deps: ApiDeps): express.Router {
           if (!contextData) {
             return res.status(400).json({ error: 'contextData is required' });
           }
+          if (exceedsLimit(contextData, MAX_JSON_BODY)) {
+            return res.status(400).json({ error: `contextData must not exceed ${MAX_JSON_BODY} characters` });
+          }
           if (targetSessionId) {
             const session = await sessionManager.getSession(targetSessionId);
             if (!session) {
@@ -691,6 +701,9 @@ function createApiRouter(deps: ApiDeps): express.Router {
             const { userId, interviewType } = params;
             if (!userId || !interviewType) {
               return res.status(400).json({ error: 'userId and interviewType required when creating new session' });
+            }
+            if (exceedsLimit(userId, MAX_TEXT_FIELD) || exceedsLimit(interviewType, MAX_TEXT_FIELD)) {
+              return res.status(400).json({ error: `Text fields must not exceed ${MAX_TEXT_FIELD} characters` });
             }
             const session = await sessionManager.createSession({
               userId,
