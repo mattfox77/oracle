@@ -26,7 +26,7 @@ module.exports = [
       'no-duplicate-imports': 'error',
       'no-throw-literal': 'error',
       'prefer-const': 'error',
-      'eqeqeq': ['error', 'always'],
+      'eqeqeq': ['error', 'always', { null: 'ignore' }],
     },
   },
 ];

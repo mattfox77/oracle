@@ -8,7 +8,6 @@
  */
 
 import 'dotenv/config';
-import * as path from 'path';
 import express from 'express';
 import { loggers, BaseHealthServer } from 'the-machina';
 import { getTemporalClient } from './temporal/client';
@@ -54,9 +53,6 @@ const config = {
   server: {
     port: parseInt(process.env.PORT || '3001')
   },
-  workspace: {
-    path: path.join(__dirname, '..', 'workspace')
-  }
 };
 
 /**
@@ -78,7 +74,7 @@ async function persistWorkflowState(
       return;
     } catch (e) {
       if (attempt === retries - 1) {
-        loggers.app.warn('Could not persist state after signal', { workflowId, attempt });
+        loggers.app.warn('Could not persist state after signal', { workflowId, attempt, error: (e as Error).message });
       }
     }
   }
@@ -224,6 +220,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
             });
           }
         } catch (queryError) {
+          loggers.app.warn('Could not query workflow state', { workflowId: workflow.workflowId, error: (queryError as Error).message });
           interviews.push({
             workflowId: workflow.workflowId,
             status: workflow.status.name,
@@ -812,19 +809,23 @@ async function main(): Promise<void> {
   loggers.app.info('Oracle started', { port: config.server.port });
 
   // Handle graceful shutdown
-  process.on('SIGINT', async () => {
+  const shutdown = async () => {
     loggers.app.info('Shutting down...');
-    await healthServer.stop();
-    await dataStore.close();
+    try {
+      await healthServer.stop();
+    } catch (e) {
+      loggers.app.warn('Error stopping health server', { error: (e as Error).message });
+    }
+    try {
+      await dataStore.close();
+    } catch (e) {
+      loggers.app.warn('Error closing database', { error: (e as Error).message });
+    }
     process.exit(0);
-  });
+  };
 
-  process.on('SIGTERM', async () => {
-    loggers.app.info('Shutting down...');
-    await healthServer.stop();
-    await dataStore.close();
-    process.exit(0);
-  });
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 // Run the application
