@@ -11,7 +11,7 @@ export interface PrimeParams {
 }
 
 export async function primeInterview(params: PrimeParams): Promise<void> {
-  loggers.app.info('Priming interview', params);
+  loggers.temporal.info('Priming interview', params);
 
   // Validate inputs
   if (!params.domain || params.domain.trim().length === 0) {
@@ -23,5 +23,5 @@ export async function primeInterview(params: PrimeParams): Promise<void> {
   }
 
   // Store in activity context (would persist to DB in production)
-  loggers.app.info('Interview primed successfully');
+  loggers.temporal.info('Interview primed successfully');
 }

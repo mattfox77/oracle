@@ -24,11 +24,11 @@ async function run() {
       activities
     });
 
-    loggers.app.info('Oracle Sentinel started', { taskQueue: 'oracle-queue' });
+    loggers.temporal.info('Oracle Sentinel started', { taskQueue: 'oracle-queue' });
 
     // Graceful shutdown
     const shutdownHandler = async () => {
-      loggers.app.info('Shutting down Oracle Sentinel...');
+      loggers.temporal.info('Shutting down Oracle Sentinel...');
       worker.shutdown();
     };
 
@@ -37,7 +37,7 @@ async function run() {
 
     await worker.run();
   } catch (error) {
-    loggers.app.error('Oracle Sentinel failed', error as Error);
+    loggers.temporal.error('Oracle Sentinel failed', error as Error);
     process.exit(1);
   }
 }

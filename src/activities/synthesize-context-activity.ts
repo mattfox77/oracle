@@ -21,7 +21,7 @@ export interface ContextDocument {
 }
 
 export async function synthesizeContext(params: SynthesizeContextParams): Promise<ContextDocument> {
-  loggers.app.info('Synthesizing context', { exchangeCount: params.exchanges.length });
+  loggers.temporal.info('Synthesizing context', { exchangeCount: params.exchanges.length });
 
   const conversationHistory = params.exchanges
     .map((e, i) => `Q${i + 1}: ${e.question}\nA${i + 1}: ${e.answer}`)
@@ -71,7 +71,7 @@ Each array should have at least one item. Be specific — reference details from
       uncertainties: parsed.uncertainties || [],
     };
   } catch (error) {
-    loggers.app.error('Failed to synthesize context via Claude', error as Error);
+    loggers.temporal.error('Failed to synthesize context via Claude', error as Error);
     // Fallback: extract what we can from the exchanges directly
     return buildFallbackContext(params);
   }

@@ -9,7 +9,7 @@
 
 import 'dotenv/config';
 import express from 'express';
-import { loggers, BaseHealthServer } from 'the-machina';
+import { loggers, BaseHealthServer, getMetrics } from 'the-machina';
 import { getTemporalClient } from './temporal/client';
 import { OracleDataStore } from './data/store';
 import { PostgresSessionStorage } from './data/session-storage';
@@ -24,6 +24,24 @@ import {
   validateCreateSessionParams
 } from './core';
 import { apiKeyAuth, createRateLimiter } from './middleware';
+
+// Oracle-specific Prometheus metrics
+const metrics = getMetrics({ prefix: 'oracle_' });
+const interviewsStarted = metrics.createCounter(
+  'oracle_interviews_started_total',
+  'Total interviews started',
+  ['type']
+);
+const interviewsCompleted = metrics.createCounter(
+  'oracle_interviews_completed_total',
+  'Total interviews completed',
+  ['type']
+);
+const claudeCalls = metrics.createCounter(
+  'oracle_claude_calls_total',
+  'Total Claude API calls',
+  ['activity']
+);
 
 // Input limits (bytes)
 const MAX_TEXT_FIELD = 10_000;    // domain, objective, response fields
@@ -74,7 +92,7 @@ async function persistWorkflowState(
       return;
     } catch (e) {
       if (attempt === retries - 1) {
-        loggers.app.warn('Could not persist state after signal', { workflowId, attempt, error: (e as Error).message });
+        loggers.temporal.warn('Could not persist state after signal', { workflowId, attempt, error: (e as Error).message });
       }
     }
   }
@@ -130,14 +148,15 @@ function createApiRouter(deps: ApiDeps): express.Router {
         sentinelId: 'oracle'
       });
 
-      loggers.app.info('Interview started', { workflowId });
+      interviewsStarted.inc({ type: 'temporal' });
+      loggers.temporal.info('Interview started', { workflowId });
 
       res.json({
         interviewId: workflowId,
         status: 'started'
       });
     } catch (error: any) {
-      loggers.app.error('Failed to start interview', error);
+      loggers.temporal.error('Failed to start interview', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -163,13 +182,13 @@ function createApiRouter(deps: ApiDeps): express.Router {
 
       // Persist updated state in the background (non-blocking to the response)
       persistWorkflowState(handle, id, dataStore).catch(e => {
-        loggers.app.warn('Background persist failed after respond', { workflowId: id, error: (e as Error).message });
+        loggers.temporal.warn('Background persist failed after respond', { workflowId: id, error: (e as Error).message });
       });
 
-      loggers.app.info('Response sent to interview', { workflowId: id });
+      loggers.temporal.info('Response sent to interview', { workflowId: id });
       res.json({ status: 'response_received' });
     } catch (error: any) {
-      loggers.app.error('Failed to send response', error);
+      loggers.temporal.error('Failed to send response', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -183,7 +202,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
       const state = await handle.query(getStateQuery);
       res.json(state);
     } catch (error: any) {
-      loggers.app.error('Failed to get interview status', error);
+      loggers.temporal.error('Failed to get interview status', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -220,7 +239,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
             });
           }
         } catch (queryError) {
-          loggers.app.warn('Could not query workflow state', { workflowId: workflow.workflowId, error: (queryError as Error).message });
+          loggers.temporal.warn('Could not query workflow state', { workflowId: workflow.workflowId, error: (queryError as Error).message });
           interviews.push({
             workflowId: workflow.workflowId,
             status: workflow.status.name,
@@ -235,10 +254,10 @@ function createApiRouter(deps: ApiDeps): express.Router {
         ? interviews.slice(offset, offset + limit)
         : interviews.slice(offset);
 
-      loggers.app.info('Listed interviews', { count: paginated.length, total: interviews.length });
+      loggers.temporal.info('Listed interviews', { count: paginated.length, total: interviews.length });
       res.json({ interviews: paginated, count: paginated.length, total: interviews.length, limit: limit ?? null, offset });
     } catch (error: any) {
-      loggers.app.error('Failed to list interviews', error);
+      loggers.temporal.error('Failed to list interviews', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -260,10 +279,10 @@ function createApiRouter(deps: ApiDeps): express.Router {
 
       await handle.cancel();
 
-      loggers.app.info('Interview cancelled', { workflowId: id });
+      loggers.temporal.info('Interview cancelled', { workflowId: id });
       res.json({ status: 'cancelled', workflowId: id });
     } catch (error: any) {
-      loggers.app.error('Failed to cancel interview', error);
+      loggers.temporal.error('Failed to cancel interview', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -288,13 +307,13 @@ function createApiRouter(deps: ApiDeps): express.Router {
 
       // Persist updated state in the background (non-blocking to the response)
       persistWorkflowState(handle, id, dataStore).catch(e => {
-        loggers.app.warn('Background persist failed after context edit', { workflowId: id, error: (e as Error).message });
+        loggers.temporal.warn('Background persist failed after context edit', { workflowId: id, error: (e as Error).message });
       });
 
-      loggers.app.info('Context edited', { workflowId: id });
+      loggers.temporal.info('Context edited', { workflowId: id });
       res.json({ status: 'context_updated' });
     } catch (error: any) {
-      loggers.app.error('Failed to edit context', error);
+      loggers.temporal.error('Failed to edit context', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -317,9 +336,11 @@ function createApiRouter(deps: ApiDeps): express.Router {
       }
 
       const session = await sessionManager.createSession({ userId, interviewType, initialContext });
+      claudeCalls.inc({ activity: 'generate_question' });
       const firstQuestion = await interviewEngine.getNextQuestion(session);
       const progress = await interviewEngine.getProgress(session);
 
+      interviewsStarted.inc({ type: 'session' });
       loggers.app.info('Oracle-core session started', { sessionId: session.id, type: interviewType });
 
       res.json({
@@ -358,6 +379,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
         return res.status(400).json({ error: `Session is ${session.status}, cannot respond` });
       }
 
+      claudeCalls.inc({ activity: 'process_response' });
       const result = await interviewEngine.processResponse(session, response);
 
       if (!result.success) {
@@ -368,6 +390,9 @@ function createApiRouter(deps: ApiDeps): express.Router {
 
       const progress = await interviewEngine.getProgress(updated);
 
+      if (result.completed) {
+        interviewsCompleted.inc({ type: 'session' });
+      }
       loggers.app.info('Session response processed', { sessionId: id, completed: result.completed });
 
       res.json({
@@ -473,6 +498,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
         return res.status(400).json({ error: 'Analysis only available for completed sessions' });
       }
 
+      claudeCalls.inc({ activity: 'generate_analysis' });
       const analysis = await analyzer.generateAnalysis(session);
 
       loggers.app.info('Analysis generated', { sessionId: id, score: analysis.score });
@@ -544,7 +570,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
 
       const issueId = await dataStore.createIssue(tenantId, description, priority);
 
-      loggers.app.info('Issue created from maintenance interview', {
+      loggers.data.info('Issue created from maintenance interview', {
         sessionId: id,
         issueId,
         priority,
@@ -591,6 +617,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
             return res.status(400).json({ error: validation.errors.join(', ') });
           }
           const session = await sessionManager.createSession({ userId, interviewType, initialContext });
+          claudeCalls.inc({ activity: 'generate_question' });
           const firstQuestion = await interviewEngine.getNextQuestion(session);
           res.json({ success: true, data: { sessionId: session.id, firstQuestion } });
           break;
@@ -605,6 +632,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
           if (!session) {
             return res.status(404).json({ error: `Session not found: ${sessionId}` });
           }
+          claudeCalls.inc({ activity: 'generate_question' });
           const question = await interviewEngine.getNextQuestion(session);
           res.json({ success: true, data: { question } });
           break;
@@ -622,6 +650,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
           if (session.status !== 'completed') {
             return res.status(400).json({ error: 'Session must be completed before synthesis' });
           }
+          claudeCalls.inc({ activity: 'synthesize_context' });
           const analysis = await analyzer.generateAnalysis(session);
           res.json({ success: true, data: { analysis } });
           break;
@@ -639,6 +668,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
           if (session.status !== 'completed') {
             return res.status(400).json({ error: 'Session must be completed for recommendations' });
           }
+          claudeCalls.inc({ activity: 'generate_recommendations' });
           const analysis = await analyzer.generateAnalysis(session);
           res.json({ success: true, data: { recommendations: analysis.recommendations } });
           break;
@@ -738,6 +768,10 @@ class OracleHealthServer extends BaseHealthServer {
     this.dataStore = deps.dataStore;
   }
 
+  protected async getMetrics(): Promise<string> {
+    return metrics.getMetrics();
+  }
+
   protected async checkDependencies(): Promise<Record<string, { name: string; status: 'up' | 'down'; message?: string; responseTime?: number }>> {
     const checks: Record<string, { name: string; status: 'up' | 'down'; message?: string; responseTime?: number }> = {};
 
@@ -786,7 +820,7 @@ async function main(): Promise<void> {
   // Initialize data store
   const dataStore = new OracleDataStore();
   await dataStore.connect({ db: config.database });
-  loggers.app.info('Connected to database');
+  loggers.data.info('Connected to database');
 
   // Initialize oracle-core services with PostgreSQL-backed session storage
   const sessionStorage = new PostgresSessionStorage(dataStore.getPool());
@@ -819,7 +853,7 @@ async function main(): Promise<void> {
     try {
       await dataStore.close();
     } catch (e) {
-      loggers.app.warn('Error closing database', { error: (e as Error).message });
+      loggers.data.warn('Error closing database', { error: (e as Error).message });
     }
     process.exit(0);
   };

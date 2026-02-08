@@ -12,7 +12,7 @@ export interface GenerateQuestionParams {
 }
 
 export async function generateQuestion(params: GenerateQuestionParams): Promise<string> {
-  loggers.app.info('Generating interview question', { exchangeCount: params.exchanges.length });
+  loggers.temporal.info('Generating interview question', { exchangeCount: params.exchanges.length });
 
   const conversationHistory = params.exchanges
     .map(e => `Q: ${e.question}\nA: ${e.answer}`)
@@ -41,7 +41,7 @@ Build naturally on the previous answers. Ask ONE focused question. Return ONLY t
 
     return question.trim();
   } catch (error) {
-    loggers.app.error('Failed to generate question via Claude', error as Error);
+    loggers.temporal.error('Failed to generate question via Claude', error as Error);
     // Fallback to a reasonable generic question
     const n = params.exchanges.length;
     if (n === 0) {

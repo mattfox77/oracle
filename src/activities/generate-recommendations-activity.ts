@@ -17,7 +17,7 @@ export interface GenerateRecommendationsParams {
 export async function generateRecommendations(
   params: GenerateRecommendationsParams
 ): Promise<Recommendation[]> {
-  loggers.app.info('Generating recommendations');
+  loggers.temporal.info('Generating recommendations');
 
   const contextSummary = `
 Summary: ${params.contextDocument.summary}
@@ -81,7 +81,7 @@ Requirements:
       ...(r.agentToExecute ? { agentToExecute: r.agentToExecute } : {}),
     }));
   } catch (error) {
-    loggers.app.error('Failed to generate recommendations via Claude', error as Error);
+    loggers.temporal.error('Failed to generate recommendations via Claude', error as Error);
     // Fallback: build basic recommendations from context
     return buildFallbackRecommendations(params);
   }

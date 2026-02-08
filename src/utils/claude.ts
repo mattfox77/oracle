@@ -6,6 +6,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { withRetry, RetryConfigs } from 'the-machina';
 
 let client: Anthropic | null = null;
 
@@ -44,13 +45,16 @@ export async function claudeCompletion(params: ClaudeCompletionParams): Promise<
     ? `${ORACLE_SYSTEM_PROMPT}\n\n${params.systemSuffix}`
     : ORACLE_SYSTEM_PROMPT;
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
-    max_tokens: params.maxTokens ?? 1024,
-    temperature: params.temperature ?? 0.7,
-    system,
-    messages: [{ role: 'user', content: params.prompt }],
-  });
+  const response = await withRetry(
+    () => anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: params.maxTokens ?? 1024,
+      temperature: params.temperature ?? 0.7,
+      system,
+      messages: [{ role: 'user', content: params.prompt }],
+    }),
+    RetryConfigs.anthropic()
+  );
 
   const block = response.content[0];
   if (block.type !== 'text') {

@@ -19,7 +19,7 @@ export class OracleDataStore {
     const client = await this.pool.connect();
     try {
       await client.query('SELECT 1');
-      loggers.app.info('Database connected');
+      loggers.data.info('Database connected');
     } finally {
       client.release();
     }

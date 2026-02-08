@@ -16,7 +16,7 @@ export interface ProcessResponseResult {
 }
 
 export async function processResponse(params: ProcessResponseParams): Promise<ProcessResponseResult> {
-  loggers.app.info('Processing interview response', {
+  loggers.temporal.info('Processing interview response', {
     questionLength: params.question.length,
     answerLength: params.answer.length
   });
