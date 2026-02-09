@@ -3,6 +3,14 @@
 # Or: podman compose up -d (with podman-compose plugin)
 #
 # All services use host network mode for direct host network access
+#
+# Port assignments (chosen to avoid conflicts with sibling projects):
+#   PostgreSQL : 5436  (saga=5433, shelly=5434/5435, ip=5432)
+#   Temporal   : reuses existing server on 7233 (shared with shelly)
+#   App (HTTP) : 3001
+#
+# To run Oracle's own Temporal server instead of sharing:
+#   podman compose --profile infrastructure up -d
 
 services:
   app:
@@ -14,23 +22,23 @@ services:
     volumes:
       - ../..:/workspaces:z
       - ${HOME}/.claude:/root/.claude:z
-    command: sleep infinity
+    command: >
+      bash -c "cd /workspaces/oracle && npm install --prefer-offline && exec npm run dev"
     security_opt:
       - label:disable
     environment:
       - NODE_ENV=development
       - DB_HOST=localhost
-      - DB_PORT=5432
+      - DB_PORT=5436
       - DB_NAME=oracle
       - DB_USER=oracle
       - DB_PASSWORD=oracle_dev_password
       - TEMPORAL_ADDRESS=localhost:7233
+      - TEMPORAL_NAMESPACE=default
       - PORT=3001
     depends_on:
       db:
         condition: service_healthy
-      temporal:
-        condition: service_started
 
   db:
     container_name: oracle-db
@@ -40,14 +48,15 @@ services:
     security_opt:
       - label:disable
     volumes:
-      - postgres-data:/var/lib/postgresql/data:z
+      - oracle-postgres-data:/var/lib/postgresql/data:z
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:z
     environment:
       POSTGRES_USER: oracle
       POSTGRES_PASSWORD: oracle_dev_password
       POSTGRES_DB: oracle
+      PGPORT: "5436"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U oracle -d oracle"]
+      test: ["CMD-SHELL", "pg_isready -U oracle -d oracle -p 5436"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -61,7 +70,7 @@ services:
       - label:disable
     environment:
       - DB=postgresql
-      - DB_PORT=5432
+      - DB_PORT=5436
       - POSTGRES_USER=oracle
       - POSTGRES_PWD=oracle_dev_password
       - POSTGRES_SEEDS=localhost
@@ -69,6 +78,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    profiles:
+      - infrastructure
 
   temporal-ui:
     container_name: oracle-temporal-ui
@@ -86,4 +97,4 @@ services:
       - ui
 
 volumes:
-  postgres-data:
+  oracle-postgres-data:
