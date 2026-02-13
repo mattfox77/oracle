@@ -11,43 +11,33 @@ export const oracleSettingsSchema: SettingsSchema = {
   serviceName: 'oracle',
   version: '1.0.0',
   groups: [
-    { key: 'ai', label: 'AI Configuration', description: 'API keys and model settings for AI providers' },
+    { key: 'ai', label: 'AI Configuration', description: 'Claude CLI and model settings' },
     { key: 'interview', label: 'Interview Settings', description: 'Controls for interview behavior' },
     { key: 'rate-limiting', label: 'Rate Limiting', description: 'API rate limiting configuration' }
   ],
   fields: [
     // AI Configuration
     {
-      key: 'anthropic_api_key',
-      label: 'Anthropic API Key',
-      type: 'password',
-      group: 'ai',
-      description: 'API key for the Anthropic Claude API',
-      required: true,
-      sensitive: true,
-      placeholder: 'sk-ant-...'
-    },
-    {
-      key: 'anthropic_model',
-      label: 'Default Model',
+      key: 'claude_model',
+      label: 'Claude Model',
       type: 'select',
       group: 'ai',
-      description: 'Claude model to use for interviews and analysis',
-      defaultValue: 'claude-sonnet-4-5-20250929',
+      description: 'Model to use for interviews and analysis (passed to claude --model)',
+      defaultValue: 'sonnet',
       options: [
-        { label: 'Claude Opus 4', value: 'claude-opus-4-0-20250514' },
-        { label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5-20250929' },
-        { label: 'Claude Haiku 3.5', value: 'claude-haiku-4-5-20251001' }
+        { label: 'Opus', value: 'opus' },
+        { label: 'Sonnet (Recommended)', value: 'sonnet' },
+        { label: 'Haiku', value: 'haiku' }
       ]
     },
     {
-      key: 'max_tokens',
-      label: 'Max Tokens',
+      key: 'claude_max_budget_usd',
+      label: 'Max Budget per Call ($)',
       type: 'number',
       group: 'ai',
-      description: 'Maximum tokens per AI response',
-      defaultValue: 4096,
-      validation: { min: 256, max: 32768 }
+      description: 'Maximum dollar amount to spend per Claude CLI invocation',
+      defaultValue: 1,
+      validation: { min: 0.01, max: 10 }
     },
 
     // Interview Settings
