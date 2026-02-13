@@ -10,6 +10,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { loggers, BaseHealthServer, getMetrics } from 'the-machina';
+import { oracleSettingsSchema } from './admin/settings-schema';
 import { getTemporalClient } from './temporal/client';
 import { OracleDataStore } from './data/store';
 import { PostgresSessionStorage } from './data/session-storage';
@@ -838,6 +839,13 @@ async function main(): Promise<void> {
   // Mount API routes
   healthServer.use('/api', apiRouter);
   loggers.app.info('API routes mounted');
+
+  // Enable admin UI
+  await healthServer.enableAdmin({
+    schema: oracleSettingsSchema,
+    pool: dataStore.getPool(),
+  });
+  loggers.app.info('Admin UI enabled');
 
   await healthServer.start(config.server.port);
   loggers.app.info('Oracle started', { port: config.server.port });
