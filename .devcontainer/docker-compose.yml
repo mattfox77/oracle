@@ -36,7 +36,7 @@ services:
       - DB_USER=oracle
       - DB_PASSWORD=oracle_dev_password
       - TEMPORAL_ADDRESS=localhost:7233
-      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_NAMESPACE=oracle
       - PORT=3001
     depends_on:
       db:
