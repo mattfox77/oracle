@@ -302,6 +302,8 @@ export class Analyzer implements IAnalyzer {
         recommendations.push({
           title: 'Review Application',
           rationale: 'Complete tenant screening interview ready for review',
+          pros: ['All screening data collected', 'Standardized evaluation possible'],
+          cons: ['External verification still needed'],
           nextSteps: ['Verify employment information', 'Check references', 'Review financial documents'],
           priority: 'high'
         });
@@ -314,6 +316,8 @@ export class Analyzer implements IAnalyzer {
         recommendations.push({
           title: 'Schedule Maintenance',
           rationale: 'Maintenance request details collected and categorized',
+          pros: ['Issue well-documented', 'Priority level established'],
+          cons: ['On-site assessment may reveal additional issues'],
           nextSteps: ['Assign appropriate technician', 'Schedule access time', 'Prepare required tools/parts'],
           priority,
           agentToExecute: 'Agent Smith'
@@ -324,6 +328,8 @@ export class Analyzer implements IAnalyzer {
         recommendations.push({
           title: 'Follow-up Contact',
           rationale: 'Customer onboarding information collected',
+          pros: ['Customer needs documented', 'Communication preferences known'],
+          cons: ['Budget/timeline details may need refinement'],
           nextSteps: ['Prepare service proposal', 'Schedule follow-up call', 'Send welcome materials'],
           priority: 'medium'
         });
@@ -333,6 +339,8 @@ export class Analyzer implements IAnalyzer {
         recommendations.push({
           title: 'Process Context',
           rationale: 'General context gathering completed successfully',
+          pros: ['Broad context captured', 'Key themes identifiable'],
+          cons: ['May need deeper domain-specific follow-up'],
           nextSteps: ['Review responses for key themes', 'Identify next best action', 'Schedule appropriate follow-up'],
           priority: 'medium'
         });

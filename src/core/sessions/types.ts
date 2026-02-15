@@ -108,7 +108,15 @@ export interface AnalysisResult {
 export interface Recommendation {
   title: string;
   rationale: string;
+  pros: string[];
+  cons: string[];
   nextSteps: string[];
   priority?: 'high' | 'medium' | 'low';
   agentToExecute?: string;
+}
+
+/** Pre-rendered markdown comparison of all recommendations side-by-side */
+export interface RecommendationSet {
+  recommendations: Recommendation[];
+  comparisonMarkdown: string;
 }

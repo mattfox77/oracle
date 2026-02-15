@@ -3,6 +3,7 @@
  */
 
 export * from './prime-activity';
+export * from './generate-introduction-activity';
 export * from './generate-question-activity';
 export * from './process-response-activity';
 export * from './synthesize-context-activity';

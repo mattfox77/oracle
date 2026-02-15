@@ -18,6 +18,7 @@ export interface ContextDocument {
   priorities: string[];
   assumptions: string[];
   uncertainties: string[];
+  strategicAnalysis: string;
 }
 
 export async function synthesizeContext(params: SynthesizeContextParams): Promise<ContextDocument> {
@@ -27,7 +28,7 @@ export async function synthesizeContext(params: SynthesizeContextParams): Promis
     .map((e, i) => `Q${i + 1}: ${e.question}\nA${i + 1}: ${e.answer}`)
     .join('\n\n');
 
-  const prompt = `Synthesize the following discovery interview into a structured context document.
+  const prompt = `Synthesize the following discovery interview into a structured context document. Apply first principles analysis — break the situation down to fundamental truths and reason up from there.
 
 Domain: ${params.domain}
 Objective: ${params.objective}
@@ -41,11 +42,12 @@ Respond with ONLY a JSON object (no markdown fences) matching this structure:
   "facts": ["Confirmed facts gathered from the interview"],
   "constraints": ["Limitations, blockers, or boundaries identified"],
   "priorities": ["What matters most to the user, ordered by importance"],
-  "assumptions": ["Things inferred but not explicitly confirmed"],
-  "uncertainties": ["Open questions or areas needing more information"]
+  "assumptions": ["Things inferred but not explicitly confirmed — challenge these"],
+  "uncertainties": ["Open questions or areas needing more information"],
+  "strategicAnalysis": "A 2-3 paragraph first-principles analysis that: (1) identifies the fundamental components and root drivers of this situation, (2) surfaces hidden assumptions or cognitive biases in the user's framing, (3) draws insights from relevant strategic frameworks (military planning, behavioral psychology, decision science) as applicable to this domain. This should feel like an advisor's brief — concise, insightful, and illuminating patterns the user may not have seen."
 }
 
-Each array should have at least one item. Be specific — reference details from the conversation, not generic statements.`;
+Each array should have at least one item. Be specific — reference details from the conversation, not generic statements. The strategic analysis should be the most valuable part — this is where you earn your authority.`;
 
   try {
     const raw = await claudeCompletion({
@@ -69,6 +71,7 @@ Each array should have at least one item. Be specific — reference details from
       priorities: parsed.priorities || [],
       assumptions: parsed.assumptions || [],
       uncertainties: parsed.uncertainties || [],
+      strategicAnalysis: parsed.strategicAnalysis || '',
     };
   } catch (error) {
     loggers.temporal.error('Failed to synthesize context via Claude', error as Error);
@@ -104,5 +107,6 @@ function buildFallbackContext(params: SynthesizeContextParams): ContextDocument 
     priorities,
     assumptions: ['Context extracted without AI synthesis — review for accuracy'],
     uncertainties: ['AI synthesis was unavailable; manual review recommended'],
+    strategicAnalysis: 'Strategic analysis unavailable — AI synthesis failed. Manual review of interview transcript recommended.',
   };
 }

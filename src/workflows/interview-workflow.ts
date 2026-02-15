@@ -1,5 +1,11 @@
 /**
- * Interview Workflow - 4-phase context gathering workflow
+ * Interview Workflow - 5-phase strategic interview and analysis workflow
+ *
+ * Phase 1: Prime — validate inputs
+ * Phase 2: Introduce — establish Oracle authority, gather user context
+ * Phase 3: Interview — adaptive Q&A with first-principles questioning
+ * Phase 4: Synthesize — strategic context analysis for user review
+ * Phase 5: Recommend — courses of action with pros/cons comparison
  */
 
 import { proxyActivities, defineSignal, defineQuery, setHandler, condition } from '@temporalio/workflow';
@@ -7,6 +13,7 @@ import type * as activities from '../activities';
 
 const {
   primeInterview,
+  generateIntroduction,
   generateQuestion,
   processResponse,
   synthesizeContext,
@@ -27,12 +34,13 @@ export interface GuidingQuestion {
 }
 
 export interface InterviewState {
-  phase: 'prime' | 'interview' | 'synthesize' | 'recommend' | 'complete';
+  phase: 'prime' | 'introduce' | 'interview' | 'synthesize' | 'recommend' | 'complete';
   domain: string;
   objective: string;
   constraints?: string;
   guidingQuestions?: GuidingQuestion[];
   exchanges: Array<{ question: string; answer: string }>;
+  introduction?: string;
   currentQuestion?: string;
   contextDocument?: any;
   recommendations?: any;
@@ -80,9 +88,30 @@ export async function interviewWorkflow(
 
   // Phase 1: Prime
   await primeInterview({ domain, objective, constraints });
+
+  // Phase 2: Introduce — establish authority and gather user context
+  state.phase = 'introduce';
+  const introduction = await generateIntroduction({ domain, objective, constraints });
+  state.introduction = introduction;
+  state.currentQuestion = introduction;
+  state.awaitingResponse = true;
+  state.userResponse = undefined;
+
+  const introResponded = await condition(() => !state.awaitingResponse, '24 hours');
+  if (!introResponded) {
+    throw new Error('Introduction timeout - no response received within 24 hours');
+  }
+  if (!state.userResponse) {
+    throw new Error('Introduction response was empty');
+  }
+
+  // Store the intro exchange as the first exchange — this is the user's context
+  state.exchanges.push({ question: introduction, answer: state.userResponse });
+  state.currentQuestion = undefined;
+
   state.phase = 'interview';
 
-  // Phase 2: Interview (adaptive Q&A loop)
+  // Phase 3: Interview (adaptive Q&A loop)
   let interviewComplete = false;
   let questionCount = 0;
   const maxQuestions = 20;
@@ -128,7 +157,7 @@ export async function interviewWorkflow(
 
   state.phase = 'synthesize';
 
-  // Phase 3: Synthesize
+  // Phase 4: Synthesize
   const contextDoc = await synthesizeContext({
     domain: state.domain,
     objective: state.objective,
@@ -147,7 +176,7 @@ export async function interviewWorkflow(
 
   state.phase = 'recommend';
 
-  // Phase 4: Recommend
+  // Phase 5: Recommend
   const recommendations = await generateRecommendations({
     contextDocument: state.contextDocument,
     objective: state.objective
