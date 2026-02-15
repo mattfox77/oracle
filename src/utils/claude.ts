@@ -96,3 +96,12 @@ export async function claudeCompletion(params: ClaudeCompletionParams): Promise<
 
   return result.trim();
 }
+
+/**
+ * Strip markdown code fences from Claude output before JSON parsing.
+ * Claude sometimes wraps JSON in ```json ... ``` despite instructions.
+ */
+export function stripCodeFences(text: string): string {
+  const stripped = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  return stripped.trim();
+}

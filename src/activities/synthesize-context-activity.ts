@@ -3,7 +3,7 @@
  */
 
 import { loggers } from 'the-machina';
-import { claudeCompletion } from '../utils/claude';
+import { claudeCompletion, stripCodeFences } from '../utils/claude';
 
 export interface SynthesizeContextParams {
   domain: string;
@@ -57,7 +57,7 @@ Each array should have at least one item. Be specific — reference details from
       temperature: 0.3,
     });
 
-    const parsed = JSON.parse(raw) as ContextDocument;
+    const parsed = JSON.parse(stripCodeFences(raw)) as ContextDocument;
 
     // Validate required fields are present
     if (!parsed.summary || !Array.isArray(parsed.facts)) {

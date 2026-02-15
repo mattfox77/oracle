@@ -3,7 +3,7 @@
  */
 
 import { loggers } from 'the-machina';
-import { claudeCompletion } from '../utils/claude';
+import { claudeCompletion, stripCodeFences } from '../utils/claude';
 import type { ContextDocument } from './synthesize-context-activity';
 import type { Recommendation, RecommendationSet } from '../core/sessions/types';
 
@@ -83,7 +83,7 @@ Requirements:
       temperature: 0.4,
     });
 
-    const parsed = JSON.parse(raw) as RecommendationSet;
+    const parsed = JSON.parse(stripCodeFences(raw)) as RecommendationSet;
 
     if (!parsed.recommendations || !Array.isArray(parsed.recommendations) || parsed.recommendations.length === 0) {
       throw new Error('Invalid recommendations structure');
