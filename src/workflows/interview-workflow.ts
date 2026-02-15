@@ -18,12 +18,22 @@ const {
   }
 });
 
+export interface GuidingQuestion {
+  id: string;
+  text: string;
+  type: 'text' | 'number' | 'yes_no' | 'scale' | 'date' | 'multiple_choice' | 'multiple_select';
+  required: boolean;
+  options?: string[];
+}
+
 export interface InterviewState {
   phase: 'prime' | 'interview' | 'synthesize' | 'recommend' | 'complete';
   domain: string;
   objective: string;
   constraints?: string;
+  guidingQuestions?: GuidingQuestion[];
   exchanges: Array<{ question: string; answer: string }>;
+  currentQuestion?: string;
   contextDocument?: any;
   recommendations?: any;
   userResponse?: string;
@@ -37,13 +47,15 @@ export const getStateQuery = defineQuery<InterviewState>('getState');
 export async function interviewWorkflow(
   domain: string,
   objective: string,
-  constraints?: string
+  constraints?: string,
+  guidingQuestions?: GuidingQuestion[]
 ): Promise<InterviewState> {
   const state: InterviewState = {
     phase: 'prime',
     domain,
     objective,
     constraints,
+    guidingQuestions,
     exchanges: [],
     awaitingResponse: false
   };
@@ -80,8 +92,12 @@ export async function interviewWorkflow(
     const question = await generateQuestion({
       domain: state.domain,
       objective: state.objective,
-      exchanges: state.exchanges
+      exchanges: state.exchanges,
+      guidingQuestions: state.guidingQuestions,
     });
+
+    // Expose pending question so UI can display it
+    state.currentQuestion = question;
 
     // Wait for user response
     state.awaitingResponse = true;
@@ -105,6 +121,7 @@ export async function interviewWorkflow(
     });
 
     state.exchanges.push({ question, answer: state.userResponse });
+    state.currentQuestion = undefined;
     interviewComplete = result.complete;
     questionCount++;
   }

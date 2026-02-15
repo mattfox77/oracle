@@ -35,10 +35,11 @@ function runClaude(args: string[], input: string): Promise<string> {
     const child = execFile('claude', args, {
       maxBuffer: 1024 * 1024,
       timeout: 5 * 60 * 1000,  // 5 minute timeout matching previous activity config
-      env: {
-        ...process.env,
-        CLAUDECODE: '',  // unset to allow nested invocation
-      },
+      env: (() => {
+        const env = { ...process.env };
+        delete env.CLAUDECODE;  // remove to allow nested invocation
+        return env;
+      })(),
     }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`Claude CLI failed: ${error.message}${stderr ? ` — ${stderr}` : ''}`));
@@ -68,7 +69,6 @@ export async function claudeCompletion(params: ClaudeCompletionParams): Promise<
     '--system-prompt', system,
     '--output-format', 'text',
     '--no-session-persistence',
-    '--dangerously-skip-permissions',
   ];
 
   if (params.maxTokens) {

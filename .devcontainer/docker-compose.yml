@@ -23,7 +23,9 @@ services:
       - ../..:/workspaces:z
       - ${HOME}/.claude:/root/.claude:z
     command: >
-      bash -c "cd /workspaces/oracle && npm install --prefer-offline && exec npm run dev"
+      bash -c "cd /workspaces/oracle && npm install --prefer-offline &&
+               npx tsx src/worker.ts &
+               exec npm run dev"
     security_opt:
       - label:disable
     environment:

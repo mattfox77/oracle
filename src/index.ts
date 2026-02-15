@@ -120,7 +120,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
   // Start interview
   router.post('/interviews', async (req, res) => {
     try {
-      const { domain, objective, constraints } = req.body;
+      const { domain, objective, constraints, guidingQuestions } = req.body;
 
       if (!domain || !objective) {
         return res.status(400).json({ error: 'domain and objective are required' });
@@ -136,7 +136,7 @@ function createApiRouter(deps: ApiDeps): express.Router {
       await client.workflow.start(interviewWorkflow, {
         taskQueue: 'oracle-queue',
         workflowId,
-        args: [domain, objective, constraints]
+        args: [domain, objective, constraints, guidingQuestions]
       });
 
       // Persist initial state
