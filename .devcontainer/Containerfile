@@ -22,6 +22,16 @@ RUN npm install -g \
     @anthropic-ai/sdk \
     @anthropic-ai/claude-code
 
+# Install sandbox-agent for AI-assisted development
+RUN curl -fsSL https://releases.rivet.dev/sandbox-agent/0.2.x/install.sh | sh && \
+    sandbox-agent install-agent claude
+
+# Pre-approve Claude Code tools so sandbox-agent sessions work without
+# manual permission approval (the Inspector UI has no approve button).
+RUN mkdir -p /etc/claude-code && \
+    echo '{"permissions":{"allow":["Bash","Read","Write","Edit","Glob","Grep","WebFetch","WebSearch","NotebookEdit"]}}' \
+    > /etc/claude-code/managed-settings.json
+
 # Create workspace directory
 WORKDIR /workspaces/oracle
 

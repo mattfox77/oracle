@@ -8,6 +8,7 @@
 #   PostgreSQL : 5436  (saga=5433, shelly=5434/5435, ip=5432)
 #   Temporal   : reuses existing server on 7233 (shared with shelly)
 #   App (HTTP) : 3001
+#   Sandbox    : 4001  (sandbox-agent Inspector UI + API)
 #
 # To run Oracle's own Temporal server instead of sharing:
 #   podman compose --profile infrastructure up -d
@@ -25,6 +26,7 @@ services:
     command: >
       bash -c "cd /workspaces/oracle && npm install --prefer-offline &&
                npx tsx src/worker.ts &
+               sandbox-agent server --no-token --host 0.0.0.0 --port 4001 &
                exec npm run dev"
     security_opt:
       - label:disable
@@ -38,6 +40,8 @@ services:
       - TEMPORAL_ADDRESS=localhost:7233
       - TEMPORAL_NAMESPACE=oracle
       - PORT=3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - IS_SANDBOX=1
     depends_on:
       db:
         condition: service_healthy
